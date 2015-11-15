@@ -77,12 +77,15 @@ var Commands = []cli.Command{
 				wg.Add(1)
 				go func() {
 					for cmd := range cmdq {
-						fmt.Println(cmd.Args[7])
+						_, fierr := os.Stat(cmd.Args[7])
 
-						cerr := cmd.Run()
+						if fierr != nil {
+							fmt.Println(cmd.Args[7])
+							cerr := cmd.Run()
 
-						if cerr != nil {
-							log.Println(cmd, cerr)
+							if cerr != nil {
+								log.Println(cmd, cerr)
+							}
 						}
 					}
 					wg.Done()
