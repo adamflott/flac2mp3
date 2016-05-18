@@ -58,7 +58,7 @@ var Commands = []cli.Command{
 				Usage: "<n>",
 			},
 		},
-		Action: func(c *cli.Context) {
+		Action: func(c *cli.Context) error {
 
 			worker_count := c.Int("workers")
 
@@ -93,6 +93,7 @@ var Commands = []cli.Command{
 			}
 
 			wg.Wait()
+			return nil
 		},
 	},
 }
