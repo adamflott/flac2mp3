@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/codegangsta/cli"
 	"log"
 	"os"
 	"os/exec"
@@ -12,6 +11,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
+
+import (
+	"github.com/urfave/cli"
 )
 
 const Name string = "flac2mp3"
