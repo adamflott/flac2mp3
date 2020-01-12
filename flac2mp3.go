@@ -20,9 +20,12 @@ import (
 const Name string = "flac2mp3"
 const Version string = "1"
 
+var ffmpegBinaryPath string
 var cmdq chan *exec.Cmd
 var dest string
 var src string
+
+var isScan bool = false
 
 var GlobalFlags = []cli.Flag{
 	cli.StringFlag{
@@ -46,7 +49,8 @@ var Commands = []cli.Command{
 		Flags:       []cli.Flag{},
 		Action: func(c *cli.Context) {
 			src := c.GlobalString("source-directory")
-			filepath.Walk(src, TraversePrint)
+			isScan = true
+			filepath.Walk(src, traverse)
 		},
 	},
 	{
@@ -71,7 +75,7 @@ var Commands = []cli.Command{
 			cmdq = make(chan *exec.Cmd, 1024)
 
 			go func() {
-				filepath.Walk(src, Traverse)
+				filepath.Walk(src, traverse)
 				close(cmdq)
 			}()
 
@@ -107,47 +111,44 @@ func main() {
 	app.Version = Version
 	app.Author = "Adam Flott"
 	app.Email = "adam@adamflott.com"
-	app.Usage = "parallel conversion of flacs to V0 mp3s"
+	app.Usage = "parallel conversion of flacs to V0 mp3s with ffmpeg"
 
 	app.Compiled = time.Now()
-	app.Copyright = "2015"
+	app.Copyright = "2020"
 
 	app.Flags = GlobalFlags
 	app.Commands = Commands
-	app.CommandNotFound = CommandNotFound
+	app.CommandNotFound = func(c *cli.Context, command string) {
+		fmt.Fprintf(os.Stderr, "%s: '%s' is not a %s command. See '%s --help'.", c.App.Name, command, c.App.Name, c.App.Name)
+		os.Exit(2)
+	}
+
+	ffmpegpath, fferr := exec.LookPath("ffmpeg")
+	if fferr != nil {
+		log.Fatalln(fferr)
+	}
+
+	ffmpegBinaryPath = ffmpegpath
 
 	app.Run(os.Args)
 }
 
-func CommandNotFound(c *cli.Context, command string) {
-	fmt.Fprintf(os.Stderr, "%s: '%s' is not a %s command. See '%s --help'.", c.App.Name, command, c.App.Name, c.App.Name)
-	os.Exit(2)
-}
-
-func TraversePrint(fpath string, info os.FileInfo, err error) error {
+func traverse(fpathi string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
 
-	if info.IsDir() == true || info.Size() == 0 || info.Mode().IsRegular() == false {
+	// Skip all non-regular files (dirs, etc)
+	if info.IsDir() == true || info.Mode().IsRegular() == false {
 		return nil
 	}
 
-	if strings.ToLower(path.Ext(fpath)) != ".flac" {
-		return nil
+	if filepath.Base(fpathi) == ".flac2mp3ignore" {
+		fmt.Println("Skipping", filepath.Dir(fpathi))
+		return filepath.SkipDir
 	}
 
-	fmt.Println(fpath)
-
-	return nil
-}
-
-func Traverse(fpathi string, info os.FileInfo, err error) error {
-	if err != nil {
-		return err
-	}
-
-	if info.IsDir() == true || info.Size() == 0 || info.Mode().IsRegular() == false {
+	if info.Size() == 0 {
 		return nil
 	}
 
@@ -155,22 +156,26 @@ func Traverse(fpathi string, info os.FileInfo, err error) error {
 		return nil
 	}
 
-	filename := filepath.Base(fpathi)
-	ext := filepath.Ext(fpathi)
-	filename = strings.TrimSuffix(filename, ext) + ".mp3"
+	if isScan {
+		fmt.Println(fpathi)
+	} else {
+		filename := filepath.Base(fpathi)
+		ext := filepath.Ext(fpathi)
+		filename = strings.TrimSuffix(filename, ext) + ".mp3"
 
-	dir := filepath.Join(dest, strings.TrimPrefix(filepath.Dir(fpathi), src))
+		dir := filepath.Join(dest, strings.TrimPrefix(filepath.Dir(fpathi), src))
 
-	direrr := os.MkdirAll(dir, 0755)
+		direrr := os.MkdirAll(dir, 0755)
 
-	if direrr != nil {
-		log.Fatalln(direrr)
+		if direrr != nil {
+			log.Fatalln(direrr)
+		}
+
+		fpatho := filepath.Clean(filepath.Join(dir, filename))
+
+		ffmpegcmd := exec.Command(ffmpegBinaryPath, "-i", fpathi, "-codec:a", "libmp3lame", "-qscale:a", "0", fpatho)
+		cmdq <- ffmpegcmd
 	}
-
-	fpatho := filepath.Clean(filepath.Join(dir, filename))
-
-	ffmpegcmd := exec.Command(FFMpegPath(), "-i", fpathi, "-codec:a", "libmp3lame", "-qscale:a", "0", fpatho)
-	cmdq <- ffmpegcmd
 
 	return nil
 }
@@ -182,13 +187,4 @@ func GetCwd() string {
 		log.Fatalln(derr)
 	}
 	return dir
-}
-
-func FFMpegPath() string {
-	ffmpegpath, fferr := exec.LookPath("ffmpeg")
-
-	if fferr != nil {
-		log.Fatalln(fferr)
-	}
-	return ffmpegpath
 }
